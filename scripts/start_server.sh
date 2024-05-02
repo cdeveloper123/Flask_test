@@ -9,3 +9,4 @@ else
     exit 1
 fi
 supervisord -c supervisord.conf
+

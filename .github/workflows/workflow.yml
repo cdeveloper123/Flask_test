@@ -1,7 +1,11 @@
 name: CI/CD Pipeline
 on:
   push:
-    branches: [ main ]
+    branches:
+    - main
+  pull_request:
+    branches:
+      - main
 jobs:
   continuous-integration:
     runs-on: ubuntu-latest
@@ -44,3 +48,4 @@ jobs:
             --deployment-group-name jigsawmlGroup \
             --deployment-config-name CodeDeployDefault.OneAtATime \
             --github-location repository=${{ github.repository }},commitId=${{ github.sha }}
+

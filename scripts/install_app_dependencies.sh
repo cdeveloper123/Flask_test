@@ -1,6 +1,6 @@
 #!/bin/bash
-sudo pip install virtualenv
+sudo pip3.10 install virtualenv
 cd /home/ec2-user/app
 virtualenv environment
 source environment/bin/activate
-sudo pip install -r requirements.txt
+sudo pip3.10 install -r requirements.txt

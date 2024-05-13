@@ -2,6 +2,8 @@
 cd /home/ec2-user/app
 source environment/bin/activate
 pip install supervisor
+unlink /tmp/supervisor.sock
+
 if supervisord -c supervisord.conf; then
     echo "Supervisor started successfully."
 else

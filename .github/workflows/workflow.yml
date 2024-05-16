@@ -42,7 +42,7 @@ jobs:
         id: deploy
         run: |
           aws deploy create-deployment \
-            --application-name flaskTest \
-            --deployment-group-name flaskTestGroup \
+            --application-name test \
+            --deployment-group-name TestDeploymentGroup \
             --deployment-config-name CodeDeployDefault.OneAtATime \
             --github-location repository=${{ github.repository }},commitId=${{ github.sha }}

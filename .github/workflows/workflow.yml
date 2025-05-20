@@ -18,7 +18,7 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/ci_cd'
     runs-on: ubuntu-latest
-    environment: 'staging'
+    # environment: 'staging'
     steps:
       - name: Deploy to staging
         run: |
@@ -28,7 +28,7 @@ jobs:
   deploy-prod:
     needs: [build, deploy-staging]
     runs-on: 'ubuntu-latest'
-    environment: 'prod'
+    # environment: 'prod'
     steps:
       - name: Deploy to production
         run: |

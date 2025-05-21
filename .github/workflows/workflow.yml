@@ -1,22 +1,27 @@
 name: CI/CD Pipeline
+
 on:
   push:
     branches:
       - ci_cd
+
 jobs:
   build:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
     steps: 
-      - name: build
+      - name: Build
         run: |
           echo "Building the project..."
           # Add your build script here
 
   deploy-staging:
     needs: build
-    if: github.ref == 'refs/heads/ci_cd'
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/ci_cd'
+    environment:
+      name: staging
+      url: https://staging.example.com
     steps:
       - name: Deploy to staging
         run: |
@@ -25,8 +30,13 @@ jobs:
 
   deploy-prod:
     needs: [build, deploy-staging]
-    runs-on: 'ubuntu-latest'
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/ci_cd'
+    environment:
+      name: production
+      url: https://production.example.com
     steps:
       - name: Deploy to production
         run: |
           echo "Deploying to production environment..."
+          # Add your production deployment script here

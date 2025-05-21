@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - ci_cd
-
 jobs:
   build:
     if: github.event_name == 'push'
@@ -18,7 +17,6 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/ci_cd'
     runs-on: ubuntu-latest
-    # environment: 'staging'
     steps:
       - name: Deploy to staging
         run: |
@@ -28,7 +26,6 @@ jobs:
   deploy-prod:
     needs: [build, deploy-staging]
     runs-on: 'ubuntu-latest'
-    # environment: 'prod'
     steps:
       - name: Deploy to production
         run: |

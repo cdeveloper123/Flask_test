@@ -29,9 +29,9 @@ jobs:
       - name: Checkout private repo
         uses: actions/checkout@v4
         with:
-          repository: cdeveloper123/Flask_test
+          repository: jigsawml/code-repos-for-test
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          path: Flask_test
+          path: code-repos-for-test
 
   deploy-prod:
     needs: [build, deploy-staging]

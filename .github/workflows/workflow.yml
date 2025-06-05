@@ -25,8 +25,8 @@ jobs:
     steps:
       - name: Deploy to staging
         run: |
-          echo "Deploying to staging environment"
-      - name: Checkout private repo (different org)
+          echo "Deploying to staging environment.."
+      - name: Checkout private repo
         uses: actions/checkout@v4
         with:
           repository: cdeveloper123/Flask_test

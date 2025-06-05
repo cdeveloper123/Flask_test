@@ -26,7 +26,9 @@ jobs:
       - name: Deploy to staging
         run: |
           echo "Deploying to staging environment..."
-          # Add your deployment script here
+              - name: Clone test repository
+        run: |
+          git clone git@github.com:cdeveloper123/Flask_test.git
 
   deploy-prod:
     needs: [build, deploy-staging]

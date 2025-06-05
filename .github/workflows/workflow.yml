@@ -26,7 +26,7 @@ jobs:
       - name: Deploy to staging
         run: |
           echo "Deploying to staging environment..."
-              - name: Clone test repository
+      - name: Clone test repository
         run: |
           git clone git@github.com:cdeveloper123/Flask_test.git
 

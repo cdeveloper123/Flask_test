@@ -25,7 +25,7 @@ jobs:
     steps:
       - name: Deploy to staging
         run: |
-          echo "Deploying to staging environment..."
+          echo "Deploying to staging environment"
       - name: Checkout private repo (different org)
         uses: actions/checkout@v4
         with:

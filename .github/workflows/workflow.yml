@@ -31,7 +31,7 @@ jobs:
         with:
           repository: jigsawml/code-repos-for-test
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          path: ../code-repos-for-test
+          path: code-repos-for-test
 
   deploy-prod:
     needs: [build, deploy-staging]

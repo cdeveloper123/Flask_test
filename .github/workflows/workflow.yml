@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: jigsawml/code-repos-for-test
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           path: code-repos-for-test
 
   deploy-prod:

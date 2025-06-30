@@ -21,7 +21,7 @@ jobs:
     if: github.ref == 'refs/heads/ci_cd'
     environment:
       name: staging
-      url: https://staging.example.com
+      url: ${{ vars.URL }}
     steps:
       - name: Deploy to staging
         run: |
@@ -39,7 +39,7 @@ jobs:
     if: github.ref == 'refs/heads/ci_cd'
     environment:
       name: production
-      url: https://production.example.com
+      url: ${{ vars.URL }}
     steps:
       - name: Deploy to production
         run: |

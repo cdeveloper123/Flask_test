@@ -1,47 +1,239 @@
-name: CI/CD Pipeline
+name: Backend CI/CD Pipeline
+
 on:
   push:
     branches:
-    - main
+      - main
   workflow_dispatch:
+    inputs:
+      run-tests:
+        description: 'Run test cases?'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      tags:
+        description: 'Purpose of running this workflow?'
+        required: true
+        type: string
+
+run-name: "${{ github.event.inputs.tags }}"
 
 jobs:
-  continuous-integration:
-    if: github.event_name == 'push'
+  build-and-test:
+    needs: cancel-stale-jobs
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
+    environment: staging
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v3
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
         with:
-          python-version: '3.10'
+          path: main-repo
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r main-repo/requirements.txt
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+      - name: Export all GitHub secrets as environment variables
+        run: |
+          echo '${{ toJson(secrets) }}' > secrets.json
+          for key in $(jq -r 'keys[]' secrets.json); do
+            value=$(jq -r --arg k "$key" '.[$k]' secrets.json)
+            {
+              echo "$key<<EOF"
+              echo "$value"
+              echo "EOF"
+            } >> $GITHUB_ENV
+          done
+          echo "all secrets exported as environment variables"
+          rm secrets.json
 
-  continuous-deployment:
-    if: github.event_name == 'workflow_dispatch'
+      - name: detect skip tests via dispatch input
+        id: skip
+        run: |
+          SKIP=false
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.run-tests }}" == "false" ]]; then
+            SKIP=true
+          fi
+          echo "skip=$SKIP" >> $GITHUB_OUTPUT
+
+      - name: Clone test repo
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && steps.skip.outputs.skip == 'false') }}
+        id: clone-test
+        env:
+          TOKEN: ${{ secrets.JIGSAWML_STAGING_GITHUB_TOKEN }}
+        run: |
+          git clone https://x-access-token:${TOKEN}@github.com/jigsawml/code-repos-for-test.git || echo "TEST_REPO_CLONE_FAILED=1" >> $GITHUB_ENV
+
+      - name: Run unit tests and record result
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && steps.skip.outputs.skip == 'false') }}
+        id: tests
+        run: |
+          cd main-repo
+          pytest tests-pytest || echo "TEST_CASES_FAILED=1" >> $GITHUB_ENV
+
+      - name: Test repository clone failed
+        if: env.TEST_REPO_CLONE_FAILED == '1'
+        run: |
+          echo "clone failed, but continuing."
+          exit 1
+        continue-on-error: true
+
+      - name: Some tests failed, continuing deployment anyway
+        if: env.TEST_CASES_FAILED == '1'
+        run: |
+          echo "test cases failed, but continuing build and staging deployment."
+          exit 1
+        continue-on-error: true
+
+  deploy-staging:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # needs: [continuous-integration]
+    environment:
+      name: staging
+      url: http://52.37.38.184/api/
+
     steps:
+      - name: Set AWS Region
+        run: |
+          echo "AWS_REGION=${{ secrets.AWS_EC2_REGION != '' && secrets.AWS_EC2_REGION || 'us-east-2' }}" >> $GITHUB_ENV
+
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Export GitHub secrets to .env file
+        run: |
+          echo '${{ toJson(secrets) }}' | jq -r 'to_entries[] | "export \(.key)=\(.value)"'
+
+      - name: Create env file dynamically from GitHub secrets
+        run: |
+          mkdir -p env
+          echo "Environment variables from github prod environment" > env/backend_env
+          echo '${{ toJson(secrets) }}' | jq -r '
+            to_entries
+            | map(select(.key != "EC2_SSH_KEY" and .key != "github_token" and .key != "JIGSAWML_PROD_GITHUB_TOKEN"))
+            | map(
+                if .key == "JIGSAWML_STAGING_GITHUB_TOKEN" then
+                  {key: "GITHUB_TOKEN", value: .value}
+                else
+                  .
+                end
+              )
+            | .[] | "\(.key)=\(.value)"
+          ' >> env/backend_env
+
+      - name: Copy files to remote server
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+        run: |
+          scp -o StrictHostKeyChecking=no env/backend_env $EC2_USERNAME@$EC2_HOST:/home/ubuntu/jigsawml-backend/.env.staging
+
       - name: Create CodeDeploy Deployment
         id: deploy
         run: |
-          aws deploy create-deployment \
-            --application-name test \
-            --deployment-group-name BlueGreenDeployment \
-            --deployment-config-name CodeDeployDefault.OneAtATime \
-            --github-location repository=${{ github.repository }},commitId=${{ github.sha }}
+          DEPLOY_ID=$(aws deploy create-deployment \
+            --application-name staging-app \
+            --deployment-group-name staging-app-group \
+            --deployment-config-name CodeDeployDefault.AllAtOnce \
+            --github-location repository=${{ github.repository }},commitId=${{ github.sha }} \
+            --query 'deploymentId' --output text)
+          echo "deployment-id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for deployment: ${{ steps.deploy.outputs.deployment-id }}"
+          aws deploy wait deployment-successful --deployment-id "${{ steps.deploy.outputs.deployment-id }}"
+          echo "Deployment completed successfully."
+
+  deploy-prod:
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://jigsawml.com/api/
+
+    steps:
+      - name: Set AWS Region
+        run: |
+          echo "AWS_REGION=${{ secrets.AWS_EC2_REGION != '' && secrets.AWS_EC2_REGION || 'us-east-2' }}" >> $GITHUB_ENV
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up SSH key and whitelist EC2 IP address
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Export GitHub secrets to .env file
+        run: |
+          echo '${{ toJson(secrets) }}' | jq -r 'to_entries[] | "export \(.key)=\(.value)"'
+
+      - name: Create env file dynamically from GitHub secrets
+        run: |
+          mkdir -p env
+          echo "Environment variables from github prod environment" > env/backend_env
+          echo '${{ toJson(secrets) }}' | jq -r '
+            to_entries
+            | map(select(.key != "EC2_SSH_KEY" and .key != "github_token" and .key != "JIGSAWML_STAGING_GITHUB_TOKEN"))
+            | map(
+                if .key == "JIGSAWML_PROD_GITHUB_TOKEN" then
+                  {key: "GITHUB_TOKEN", value: .value}
+                else
+                  .
+                end
+              )
+            | .[] | "\(.key)=\(.value)"
+          ' >> env/backend_env
+
+      - name: Copy files to remote server
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+        run: |
+          scp -o StrictHostKeyChecking=no env/backend_env $EC2_USERNAME@$EC2_HOST:/home/ubuntu/jigsawml-backend/.env.prod
+
+      - name: Create CodeDeploy Deployment
+        id: deploy
+        run: |
+          DEPLOY_ID=$(aws deploy create-deployment \
+            --application-name prod-app \
+            --deployment-group-name prod-group \
+            --deployment-config-name CodeDeployDefault.AllAtOnce \
+            --github-location repository=${{ github.repository }},commitId=${{ github.sha }} \
+            --query 'deploymentId' --output text)
+          echo "deployment-id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for deployment: ${{ steps.deploy.outputs.deployment-id }}"
+          aws deploy wait deployment-successful --deployment-id "${{ steps.deploy.outputs.deployment-id }}"
+          echo "Deployment completed successfully."
